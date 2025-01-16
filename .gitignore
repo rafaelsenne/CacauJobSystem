@@ -1,0 +1,15 @@
+# Binaries
+.vs/
+[Oo]bj/
+[Bb]in/
+[Bb]in-int/
+[Bb]inaries/
+[Bb]uild/
+
+# Visual Studio files and folder
+.vs/
+.vscode/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
