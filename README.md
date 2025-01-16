@@ -24,8 +24,8 @@ Or you can build the static library:
 
 1. Clone the repository:
     ```sh
-    git clone https://github.com/yourusername/cacau_jobs.git
-    cd cacau_jobs
+    git clone https://github.com/rafaelsenne/CacauJobSystem.git
+    cd CacauJobSystem
     ```
 
 2. Create a build directory and navigate to it:
