@@ -7,33 +7,33 @@ namespace cacau
 
         void job::execute()
         {
-            LOG_MESSAGE(std::string(m_name) + " Executing job " + std::string(m_name));
-            if (m_function)
+            LOG_MESSAGE(std::string(mName) + " Executing job " + std::string(mName));
+            if (mFunction)
             {
-                m_function();
+                mFunction();
             }
             mIsFinished = true;
             {
-                std::lock_guard<std::mutex> lock(m_dependants_mutex);
-                auto dependants = m_dependants;
+                std::lock_guard<std::mutex> lock(mDependantsMutex);
+                auto dependants = mDependants;
                 for (auto *dependant : dependants)
                 {
                     if (dependant == nullptr)
                     {
-                        LOG_MESSAGE(std::string(m_name) + " Dependant job is null, skipping");
+                        LOG_MESSAGE(std::string(mName) + " Dependant job is null, skipping");
                         continue;
                     }
                     if (!dependant->is_ready())
                     {
-                        dependant->resolve_dependency(m_name);
+                        dependant->resolve_dependency(mName);
                     }
                 }
             }
 
-            LOG_MESSAGE(std::string(m_name) + " Exiting execute");
+            LOG_MESSAGE(std::string(mName) + " Exiting execute");
         }
 
-        bool job::add_dependant(job *dependant)
+        bool job::add_dependant(job *pDependant)
         {
             if (is_finished())
             {
@@ -41,47 +41,47 @@ namespace cacau
             }
 
             {
-                std::lock_guard<std::mutex> lock(m_dependants_mutex);
-                LOG_MESSAGE(std::string(m_name) + " Attempting to lock m_dependants_mutex");
+                std::lock_guard<std::mutex> lock(mDependantsMutex);
+                LOG_MESSAGE(std::string(mName) + " Attempting to lock m_dependants_mutex");
 
-                LOG_MESSAGE(std::string(m_name) + " Adding dependant " + std::string(dependant->m_name));
-                m_dependants.push_back(dependant);
-                LOG_MESSAGE(std::string(m_name) + " added dependant " + std::string(dependant->m_name));
-                dependant->add_dependency(this);
+                LOG_MESSAGE(std::string(mName) + " Adding dependant " + std::string(pDependant->mName));
+                mDependants.push_back(pDependant);
+                LOG_MESSAGE(std::string(mName) + " added dependant " + std::string(pDependant->mName));
+                pDependant->add_dependency(this);
             }
 
-            LOG_MESSAGE(std::string(m_name) + " Exiting add_dependant");
+            LOG_MESSAGE(std::string(mName) + " Exiting add_dependant");
             return true;
         }
 
-        void job::add_dependency(job *dependency)
+        void job::add_dependency(job *pDependency)
         {
-            m_remaining_dependencies.fetch_add(1, std::memory_order_relaxed);
-            LOG_MESSAGE(std::string(m_name) + " Dependency added, remaining: " +
-                        std::to_string(m_remaining_dependencies.load()));
+            mRemainingDependencies.fetch_add(1, std::memory_order_relaxed);
+            LOG_MESSAGE(std::string(mName) + " Dependency added, remaining: " +
+                        std::to_string(mRemainingDependencies.load()));
         }
 
-        void job::resolve_dependency(const char *caller)
+        void job::resolve_dependency(const char *pCallSource)
         {
-            int remaining = m_remaining_dependencies.fetch_sub(1, std::memory_order_acq_rel) - 1;
-            LOG_MESSAGE(std::string(m_name) + " Resolving dependency [" + caller +
+            int remaining = mRemainingDependencies.fetch_sub(1, std::memory_order_acq_rel) - 1;
+            LOG_MESSAGE(std::string(mName) + " Resolving dependency [" + pCallSource +
                         "], remaining: " + std::to_string(remaining));
 
             if (remaining == 0)
             {
-                LOG_MESSAGE(std::string(m_name) + " All dependencies resolved, " + m_name + " is ready");
+                LOG_MESSAGE(std::string(mName) + " All dependencies resolved, " + mName + " is ready");
                 execute();
             }
         }
 
-        void job::set_on_ready_callback(const std::function<void()> &callback)
+        void job::set_on_ready_callback(const std::function<void()> &pCallback)
         {
-            LOG_MESSAGE(std::string(m_name) + " Setting on_ready callback for job");
-            if (m_on_ready)
+            LOG_MESSAGE(std::string(mName) + " Setting on_ready callback for job");
+            if (mOnReady)
             {
-                LOG_MESSAGE(std::string(m_name) + " on_ready callback is already set, overwriting");
+                LOG_MESSAGE(std::string(mName) + " on_ready callback is already set, overwriting");
             }
-            m_on_ready = callback;
+            mOnReady = pCallback;
         }
     } // namespace jobs
 
