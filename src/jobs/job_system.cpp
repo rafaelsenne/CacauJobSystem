@@ -7,29 +7,29 @@ namespace cacau
     {
     std::mutex execution_time_mutex;
 
-    job_system::job_system(size_t thread_count)
+    job_system::job_system(size_t pThreadCount)
         : 
         mNextThread(0),
-        m_threads(),
-        m_thread_queues(thread_count),
-        m_queue_mutexes(thread_count),
-        m_condition(),
-        m_global_mutex(),
-        m_stop(false),
-        m_paused(true),
-        m_total_jobs(0),
-        m_completed_jobs(0),
-        m_jobs_waiting_for_dependencies(),
-        m_profiling_mutexes(thread_count),
-        m_thread_active_times(thread_count),
-        m_thread_idle_times(thread_count)
+        mThreads(),
+        mThreadQueues(pThreadCount),
+        mQueueMutexes(pThreadCount),
+        mCondition(),
+        mGlobalMutex(),
+        mStop(false),
+        mJobSystemPaused(true),
+        mTotalJobs(0),
+        mCompletedJobs(0),
+        mJobsWaitingForDependencies(),
+        mProfilingMutexes(pThreadCount),
+        mThreadActiveTimes(pThreadCount),
+        mThreadIdleTimes(pThreadCount)
     {
-        for (size_t i = 0; i < thread_count; ++i)
+        for (size_t i = 0; i < pThreadCount; ++i)
         {
-            m_threads.emplace_back([this, i]
+            mThreads.emplace_back([this, i]
                                    { worker_thread(i); });
-            m_thread_active_times[i] = 0.0;
-            m_thread_idle_times[i] = 0.0;
+            mThreadActiveTimes[i] = 0.0;
+            mThreadIdleTimes[i] = 0.0;
         }
     }
 
@@ -37,12 +37,12 @@ namespace cacau
     job_system::~job_system()
     {
         {
-            std::unique_lock<std::mutex> lock(m_global_mutex);
-            m_stop = true;
+            std::unique_lock<std::mutex> lock(mGlobalMutex);
+            mStop = true;
         }
-        m_condition.notify_all();
+        mCondition.notify_all();
 
-        for (auto &thread : m_threads)
+        for (auto &thread : mThreads)
         {
             if (thread.joinable())
             {
@@ -51,42 +51,42 @@ namespace cacau
         }
     }
 
-    void job_system::submit(job* new_job)
+    void job_system::submit(job* pNewJob)
     {
         {
-            std::unique_lock<std::mutex> lock(m_queue_mutexes[mNextThread]);
-            m_thread_queues[mNextThread].push_back(new_job);
-            ++m_total_jobs;
+            std::unique_lock<std::mutex> lock(mQueueMutexes[mNextThread]);
+            mThreadQueues[mNextThread].push_back(pNewJob);
+            ++mTotalJobs;
         }
         
-        m_condition.notify_all();
+        mCondition.notify_all();
 
-        mNextThread = (mNextThread + 1) % m_thread_queues.size(); // Round-robin distribution
+        mNextThread = (mNextThread + 1) % mThreadQueues.size(); // Round-robin distribution
     }
 
-    void job_system::submit_with_dependencies(job* new_job, const std::vector<job *> &dependencies)
+    void job_system::submit_with_dependencies(job* pNewJob, const std::vector<job*> &pDependencies)
     {
         // Handle jobs with no dependencies
-        if (dependencies.empty())
+        if (pDependencies.empty())
         {
-            LOG_MESSAGE("Submitting " + std::string(new_job.name()) + " with no dependencies");
-            submit(new_job);
+            LOG_MESSAGE("Submitting " + std::string(pNewJob->name()) + " with no dependencies");
+            submit(pNewJob);
             return;
         }
 
         // Register job as waiting for dependencies
-        LOG_MESSAGE("Submitting " + std::string(new_job.name()) +
-                    " with " + std::to_string(dependencies.size()) + " dependencies");
+        LOG_MESSAGE("Submitting " + std::string(pNewJob->name()) +
+                    " with " + std::to_string(pDependencies.size()) + " dependencies");
         {
-            std::lock_guard<std::mutex> lock(m_global_mutex);
-            m_jobs_waiting_for_dependencies.push_back(new_job);
+            std::lock_guard<std::mutex> lock(mGlobalMutex);
+            mJobsWaitingForDependencies.push_back(pNewJob);
         }
 
         // Add dependencies and track if any are still pending
         bool hasPendingDependencies = false;
-        for (auto *dependency : dependencies)
+        for (auto *dependency : pDependencies)
         {
-            if(dependency->add_dependant(new_job))
+            if(dependency->add_dependant(pNewJob))
             {
                 hasPendingDependencies = true;
             }
@@ -95,44 +95,44 @@ namespace cacau
         // If all dependencies are already satisfied, submit the job directly
         if (!hasPendingDependencies)
         {
-            LOG_MESSAGE("Will execute " + std::string(new_job.name()) +
+            LOG_MESSAGE("Will execute " + std::string(pNewJob->name()) +
                         " as all dependencies are already satisfied");
-            m_jobs_waiting_for_dependencies.erase(
-                std::remove(m_jobs_waiting_for_dependencies.begin(), 
-                           m_jobs_waiting_for_dependencies.end(), new_job), 
-                m_jobs_waiting_for_dependencies.end());
-            submit(new_job);
+            mJobsWaitingForDependencies.erase(
+                std::remove(mJobsWaitingForDependencies.begin(), 
+                           mJobsWaitingForDependencies.end(), pNewJob), 
+                mJobsWaitingForDependencies.end());
+            submit(pNewJob);
         }
     }
 
-    bool job_system::steal_job(size_t thread_index, job *&stolen_job)
+    bool job_system::steal_job(size_t pThreadIndex, job* &pStolenJob)
     {
         // Try to steal from other threads' queues
-        for (size_t i = 0; i < m_thread_queues.size(); ++i)
+        for (size_t i = 0; i < mThreadQueues.size(); ++i)
         {
-            if (i == thread_index)
+            if (i == pThreadIndex)
                 continue; // Skip own queue
 
             // Try to acquire lock and steal a job
-            std::unique_lock<std::mutex> lock(m_queue_mutexes[i]);
-            if (!m_thread_queues[i].empty())
+            std::unique_lock<std::mutex> lock(mQueueMutexes[i]);
+            if (!mThreadQueues[i].empty())
             {
-                stolen_job = m_thread_queues[i].front();
-                m_thread_queues[i].pop_front();
+                pStolenJob = mThreadQueues[i].front();
+                mThreadQueues[i].pop_front();
                 return true;
             }
         }
         return false;
     }
 
-    void job_system::worker_thread(size_t thread_index)
+    void job_system::worker_thread(size_t pThreadIndex)
     {
         //auto thread_start = std::chrono::high_resolution_clock::now();
 
         while (true)
         {
             // Check if system is paused
-            if (m_paused)
+            if (mJobSystemPaused)
             {
                 std::this_thread::yield();
                 continue;
@@ -143,38 +143,38 @@ namespace cacau
 
             // Try to get job from local queue
             {
-                std::unique_lock<std::mutex> lock(m_queue_mutexes[thread_index]);
-                if (!m_thread_queues[thread_index].empty())
+                std::unique_lock<std::mutex> lock(mQueueMutexes[pThreadIndex]);
+                if (!mThreadQueues[pThreadIndex].empty())
                 {
-                    my_job = m_thread_queues[thread_index].front();
-                    m_thread_queues[thread_index].pop_front();
+                    my_job = mThreadQueues[pThreadIndex].front();
+                    mThreadQueues[pThreadIndex].pop_front();
                 }
             }
 
             // If no local job, try to steal one
-            if (!my_job && !steal_job(thread_index, my_job))
+            if (!my_job && !steal_job(pThreadIndex, my_job))
             {
                 // Update idle time statistics
                 auto idle_end = std::chrono::high_resolution_clock::now();
                 double idle_time = std::chrono::duration<double, std::milli>(
                     idle_end - idle_start).count();
-                double current_idle_time = m_thread_idle_times[thread_index].load(
+                double current_idle_time = mThreadIdleTimes[pThreadIndex].load(
                     std::memory_order_relaxed);
                 
                 {
-                    std::lock_guard<std::mutex> lock(m_profiling_mutexes[thread_index]);
-                    m_thread_idle_times[thread_index].store(
+                    std::lock_guard<std::mutex> lock(mProfilingMutexes[pThreadIndex]);
+                    mThreadIdleTimes[pThreadIndex].store(
                         current_idle_time + idle_time, std::memory_order_relaxed);
                 }
 
                 // Wait for new work or shutdown signal
-                std::unique_lock<std::mutex> lock(m_global_mutex);
-                m_condition.wait(lock, [this] {
-                    return m_stop || (!m_paused && m_total_jobs > m_completed_jobs);
+                std::unique_lock<std::mutex> lock(mGlobalMutex);
+                mCondition.wait(lock, [this] {
+                    return mStop || (!mJobSystemPaused && mTotalJobs > mCompletedJobs);
                 });
 
                 // Check if should exit
-                if (m_stop && m_total_jobs == m_completed_jobs)
+                if (mStop && mTotalJobs == mCompletedJobs)
                 {
                     return;
                 }
@@ -192,16 +192,16 @@ namespace cacau
                 // Update active time statistics
                 double execution_time = std::chrono::duration<double, std::milli>(
                     end_time - start_time).count();
-                double currentActiveTime = m_thread_active_times[thread_index].load(
+                double currentActiveTime = mThreadActiveTimes[pThreadIndex].load(
                     std::memory_order_relaxed);
                 
                 {
-                    std::lock_guard<std::mutex> lock(m_profiling_mutexes[thread_index]);
-                    m_thread_active_times[thread_index].store(
+                    std::lock_guard<std::mutex> lock(mProfilingMutexes[pThreadIndex]);
+                    mThreadActiveTimes[pThreadIndex].store(
                         currentActiveTime + execution_time, std::memory_order_relaxed);
                 }
 
-                ++m_completed_jobs;
+                ++mCompletedJobs;
                 delete my_job;
             }
         }
@@ -213,17 +213,17 @@ namespace cacau
 
         {
             // Count jobs in thread queues
-            for (size_t i = 0; i < m_thread_queues.size(); ++i)
+            for (size_t i = 0; i < mThreadQueues.size(); ++i)
             {
-                std::unique_lock<std::mutex> lock(m_queue_mutexes[i]);                
-                pending_jobs += m_thread_queues[i].size();
+                std::unique_lock<std::mutex> lock(mQueueMutexes[i]);                
+                pending_jobs += mThreadQueues[i].size();
             }
         }
 
         // Add jobs waiting for dependencies
         {
-            std::lock_guard<std::mutex> lock(m_global_mutex); // Protect access to jobs with dependencies
-            for (const auto &job : m_jobs_waiting_for_dependencies)
+            std::lock_guard<std::mutex> lock(mGlobalMutex); // Protect access to jobs with dependencies
+            for (const auto &job : mJobsWaitingForDependencies)
             {
                 if (job != nullptr && !job->is_ready())
                 {
@@ -243,34 +243,34 @@ namespace cacau
         }
     }
 
-    void job_system::wait(job* job_to_wait_for)
+    void job_system::wait(job* pJobToWait)
     {
-        if(job_to_wait_for == nullptr)
+        if(pJobToWait == nullptr)
         {
             std::cerr << "Error: job to wait is null\n";
             return;
         }
 
         resume();
-        while (job_to_wait_for != nullptr && !job_to_wait_for->is_finished())
+        while (pJobToWait != nullptr && !pJobToWait->is_finished())
         {
             std::this_thread::yield();
         }
 
 #ifdef CACAU_DEBUG
         {
-            std::lock_guard<std::mutex> lock(m_global_mutex);
-            std::cout << "Job " << job_to_wait_for.name() << " finished\n";
+            std::lock_guard<std::mutex> lock(mGlobalMutex);
+            std::cout << "Job " << pJobToWait->name() << " finished\n";
         }
 #endif
     }
 
     void job_system::print_thread_utilization() const
     {
-        for (size_t i = 0; i < m_threads.size(); ++i) {
-            double total_time = m_thread_active_times[i].load() + m_thread_idle_times[i].load();
+        for (size_t i = 0; i < mThreads.size(); ++i) {
+            double total_time = mThreadActiveTimes[i].load() + mThreadIdleTimes[i].load();
             double active_percentage = (total_time > 0) ? 
-                (m_thread_active_times[i].load() / total_time) * 100.0 : 0.0;
+                (mThreadActiveTimes[i].load() / total_time) * 100.0 : 0.0;
             double idle_percentage = 100.0 - active_percentage;
 
             std::cout << "Thread " << i << ": "

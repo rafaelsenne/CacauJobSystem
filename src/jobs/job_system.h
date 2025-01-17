@@ -25,7 +25,7 @@ namespace cacau
              * @brief Initializes the job system with a specified number of worker threads
              * @param thread_count Number of worker threads to create in the thread pool
              */
-            explicit job_system(size_t thread_count);
+            explicit job_system(size_t pThreadCount);
             ~job_system();
 
             /**
@@ -33,14 +33,14 @@ namespace cacau
              * @param new_job The job to be executed
              * @details Distributes jobs across worker threads using round-robin
              */
-            void submit(job* new_job);
+            void submit(job* pNewJob);
 
             /**
              * @brief Submits a job that depends on other jobs
              * @param new_job The job to be executed
              * @param dependencies List of jobs that must complete before this one starts
              */
-            void submit_with_dependencies(job* new_job, const std::vector<job *> &dependencies);
+            void submit_with_dependencies(job* pNewJob, const std::vector<job*> &pDependencies);
 
             /**
              * @brief Gets the number of jobs waiting to be executed
@@ -56,14 +56,14 @@ namespace cacau
             /**
              * @brief Temporarily stops job execution
              */
-            void pause() { m_paused = true; }
+            void pause() { mJobSystemPaused = true; }
 
             /**
              * @brief Resumes job execution
              */
-            void resume() { m_paused = false; }
+            void resume() { mJobSystemPaused = false; }
 
-            void wait(job* job_to_wait_for);
+            void wait(job* pJobToWait);
 
             /**
              * @brief Prints performance statistics for each worker thread
@@ -76,7 +76,7 @@ namespace cacau
              * @brief Main worker thread function that processes jobs
              * @param thread_index Identifier for the worker thread
              */
-            void worker_thread(size_t thread_index);
+            void worker_thread(size_t pThreadIndex);
 
             /**
              * @brief Attempts to steal a job from another thread's queue
@@ -84,29 +84,29 @@ namespace cacau
              * @param stolen_job Output parameter for the stolen job
              * @return true if a job was successfully stolen
              */
-            bool steal_job(size_t thread_index, job *&stolen_job);
+            bool steal_job(size_t pThreadIndex, job* &pStolenJob);
 
             // Thread management
             int mNextThread = 0;
-            std::vector<std::thread> m_threads;
-            std::vector<std::deque<job *>> m_thread_queues;
-            std::vector<std::mutex> m_queue_mutexes;
-            std::condition_variable m_condition;
-            std::mutex m_global_mutex;
-            bool m_stop;
+            std::vector<std::thread> mThreads;
+            std::vector<std::deque<job *>> mThreadQueues;
+            std::vector<std::mutex> mQueueMutexes;
+            std::condition_variable mCondition;
+            std::mutex mGlobalMutex;
+            bool mStop;
 
             // Job tracking
-            std::atomic<bool> m_paused{true};
-            std::atomic<size_t> m_total_jobs{0};
-            std::atomic<size_t> m_completed_jobs{0};
+            std::atomic<bool> mJobSystemPaused{true};
+            std::atomic<size_t> mTotalJobs{0};
+            std::atomic<size_t> mCompletedJobs{0};
             //double m_total_execution_time{0.0};
-            std::mutex execution_time_mutex;
-            std::vector<job *> m_jobs_waiting_for_dependencies;
+            std::mutex mExecutionTimeMutex;
+            std::vector<job *> mJobsWaitingForDependencies;
 
             // Performance monitoring
-            std::vector<std::mutex> m_profiling_mutexes;
-            std::vector<std::atomic<double>> m_thread_active_times;
-            std::vector<std::atomic<double>> m_thread_idle_times;
+            std::vector<std::mutex> mProfilingMutexes;
+            std::vector<std::atomic<double>> mThreadActiveTimes;
+            std::vector<std::atomic<double>> mThreadIdleTimes;
 
         };
 
